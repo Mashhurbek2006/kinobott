@@ -16,9 +16,8 @@ def init_db():
             channel_id INTEGER
         )
     ''')
-    cursor.execute('DROP TABLE IF EXISTS channels')
     cursor.execute('''
-        CREATE TABLE channels (
+        CREATE TABLE IF NOT EXISTS channels (
             chat_id TEXT PRIMARY KEY,
             name TEXT,
             url TEXT,
@@ -241,3 +240,45 @@ def get_saved_movies(user_id):
     result = cursor.fetchall()
     conn.close()
     return [{"code": r[0], "name": r[1], "lang": r[2], "quality": r[3], "file_id": r[4]} for r in result]
+
+def export_all_data():
+    """Barcha ma'lumotlarni JSON formatida eksport qilish (backup uchun)."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT code, file_id, name, lang, quality, message_id, channel_id FROM movies')
+    movies = [{"code": r[0], "file_id": r[1], "name": r[2], "lang": r[3], "quality": r[4], "message_id": r[5], "channel_id": r[6]} for r in cursor.fetchall()]
+
+    cursor.execute('SELECT chat_id, name, url, style, emoji_id FROM channels')
+    channels = [{"chat_id": r[0], "name": r[1], "url": r[2], "style": r[3], "emoji_id": r[4]} for r in cursor.fetchall()]
+
+    cursor.execute('SELECT key, value FROM settings')
+    settings = {r[0]: r[1] for r in cursor.fetchall()}
+
+    cursor.execute('SELECT user_id FROM users')
+    users = [r[0] for r in cursor.fetchall()]
+
+    conn.close()
+    return {"movies": movies, "channels": channels, "settings": settings, "users": users}
+
+def import_all_data(data):
+    """JSON ma'lumotlardan bazani tiklash (restore)."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    for m in data.get("movies", []):
+        cursor.execute('INSERT OR REPLACE INTO movies (code, file_id, name, lang, quality, message_id, channel_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (m["code"], m["file_id"], m["name"], m["lang"], m["quality"], m.get("message_id"), m.get("channel_id")))
+
+    for ch in data.get("channels", []):
+        cursor.execute('INSERT OR REPLACE INTO channels (chat_id, name, url, style, emoji_id) VALUES (?, ?, ?, ?, ?)',
+            (ch["chat_id"], ch["name"], ch["url"], ch["style"], ch.get("emoji_id", "")))
+
+    for key, value in data.get("settings", {}).items():
+        cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
+
+    for uid in data.get("users", []):
+        cursor.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (uid,))
+
+    conn.commit()
+    conn.close()
