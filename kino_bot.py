@@ -226,7 +226,11 @@ def admin_channels_callback(call):
             return
         text = "📋 <b>Majburiy kanallar ro'yxati:</b>\n\n"
         for idx, ch in enumerate(channels, 1):
-            text += f"{idx}. <b>{ch['name']}</b> (<code>{ch['chat_id']}</code>)\n"
+            if ch.get('emoji_id') and ch['emoji_id'] != "0":
+                emoji_html = premium_emoji(ch['emoji_id'], "🌟")
+                text += f"{idx}. {emoji_html} <b>{ch['name']}</b> (<code>{ch['chat_id']}</code>)\n"
+            else:
+                text += f"{idx}. <b>{ch['name']}</b> (<code>{ch['chat_id']}</code>)\n"
         bot.send_message(call.message.chat.id, text, parse_mode="HTML")
 
 @bot.message_handler(state=ChannelState.chat_id, content_types=['text', 'photo', 'video', 'document', 'audio', 'voice'])
@@ -267,7 +271,13 @@ def add_ch_emoji_id(message):
     emoji_id = "" if message.text == "0" else message.text
     with bot.retrieve_data(message.from_user.id, message.chat.id) as data:
         database.add_channel(data['chat_id'], data['name'], data['url'], data['style'], emoji_id)
-    bot.send_message(message.chat.id, "✅ Kanal bazaga rang va emoji bilan muvaffaqiyatli qo'shildi!")
+    
+    if emoji_id:
+        emoji_html = premium_emoji(emoji_id, "🌟")
+        bot.send_message(message.chat.id, f"✅ Kanal bazaga rang va emoji {emoji_html} bilan muvaffaqiyatli qo'shildi!", parse_mode="HTML")
+    else:
+        bot.send_message(message.chat.id, "✅ Kanal bazaga rang bilan muvaffaqiyatli qo'shildi!")
+        
     bot.delete_state(message.from_user.id, message.chat.id)
 
 @bot.message_handler(state=RemoveChannelState.chat_id)
