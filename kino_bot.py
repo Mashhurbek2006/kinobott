@@ -113,9 +113,9 @@ def send_subscription_warning(chat_id, not_subscribed):
         if ch.get('style'):
             btn["style"] = ch['style']
         if ch.get('emoji_id') and ch['emoji_id'] != "0":
-            btn["emoji_id"] = ch['emoji_id']
+            btn["icon_custom_emoji_id"] = ch['emoji_id']
         inline_keyboard.append([btn])
-    inline_keyboard.append([{"text": "Tekshirish", "callback_data": "check_sub", "style": "success", "emoji_id": "6296367896398399651"}])
+    inline_keyboard.append([{"text": "Tekshirish", "callback_data": "check_sub", "style": "success", "icon_custom_emoji_id": "6296367896398399651"}])
     
     markup = json.dumps({"inline_keyboard": inline_keyboard})
     text = f"{premium_emoji('6296341890371422476', '❗️')} Kechirasiz, botimizdan to‘liq foydalanish uchun quyidagi kanallarga a‘zo bo‘ling {premium_emoji('6296303781126604562', '👇')}"
