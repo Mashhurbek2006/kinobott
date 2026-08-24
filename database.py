@@ -39,6 +39,12 @@ def init_db():
             PRIMARY KEY (user_id, code)
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
     conn.commit()
     # Ensure join_requests table exists for subscription tracking
     cursor.execute('''
@@ -178,6 +184,28 @@ def get_movie(code):
             "quality": result[3]
         }
     return None
+
+def set_setting(key, value):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
+    conn.commit()
+    conn.close()
+
+def get_setting(key, default=None):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT value FROM settings WHERE key = ?', (key,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else default
+
+def delete_setting(key):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM settings WHERE key = ?', (key,))
+    conn.commit()
+    conn.close()
 
 def get_total_saved_movies_count():
     conn = sqlite3.connect(DB_NAME)
