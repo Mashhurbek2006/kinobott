@@ -40,6 +40,10 @@ class BroadcastState(StatesGroup):
 class RemoveChannelState(StatesGroup):
     chat_id = State()
 
+class SupportState(StatesGroup):
+    username = State()
+    text = State()
+
 def premium_emoji(emoji_id, fallback="👍"):
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
@@ -59,7 +63,7 @@ def get_cancel_keyboard():
 
 def get_admin_keyboard():
     keyboard = [
-        [colorful_reply_button("📢 Majburiy obuna", "danger")],
+        [colorful_reply_button("📢 Majburiy obuna", "danger"), colorful_reply_button("⚙️ Yordam tugmasi", "primary")],
         [colorful_reply_button("📊 Statistika", "primary"), colorful_reply_button("✉️ Rassilka", "success")],
         [colorful_reply_button("🎬 Yangi kino", "danger"), colorful_reply_button("🎬 Kinolar ro'yxati", "primary")],
         [colorful_reply_button("🏠 Asosiy menyu", "default")]
@@ -210,10 +214,18 @@ def send_broadcast(message):
     bot.delete_state(message.from_user.id, message.chat.id)
 
 # --- MAJBURIY OBUNA ADMIN FSM ---
-@bot.callback_query_handler(func=lambda call: call.data.startswith('admin_'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('admin_') or call.data.startswith('sup_'))
 def admin_channels_callback(call):
     if call.from_user.id not in ADMIN_IDS: return
-    if call.data == "admin_add_ch":
+    if call.data == "sup_del":
+        database.delete_setting("support_username")
+        database.delete_setting("support_text")
+        bot.answer_callback_query(call.id, "🗑 Yordam ma'lumotlari o'chirildi!", show_alert=True)
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    elif call.data == "sup_edit":
+        bot.send_message(call.message.chat.id, "Yordam beruvchi adminning username'ini kiriting (masalan: kinolas_admin):", reply_markup=get_cancel_keyboard())
+        bot.set_state(call.from_user.id, SupportState.username, call.message.chat.id)
+    elif call.data == "admin_add_ch":
         bot.send_message(call.message.chat.id, "Kanalning ID raqamini (yoki @username) kiriting:\n\n💡 <i>Maslahat: Agar kanal maxfiy bo'lsa va ID sini bilmasangiz, shunchaki u yerdagi biron xabarni menga FORWARD (uzatib) yuboring!</i>", parse_mode="HTML")
         bot.set_state(call.from_user.id, ChannelState.chat_id, call.message.chat.id)
     elif call.data == "admin_rem_ch":
@@ -284,6 +296,31 @@ def add_ch_emoji_id(message):
 def remove_ch_id(message):
     database.remove_channel(message.text)
     bot.send_message(message.chat.id, "✅ Kanal o'chirildi (agar mavjud bo'lsa).")
+    bot.delete_state(message.from_user.id, message.chat.id)
+
+@bot.message_handler(state=SupportState.username)
+def get_support_username(message):
+    if message.text == "❌ Bekor qilish":
+        bot.send_message(message.chat.id, "Bekor qilindi.", reply_markup=get_admin_keyboard())
+        bot.delete_state(message.from_user.id, message.chat.id)
+        return
+    username = message.text.replace("@", "").strip()
+    with bot.retrieve_data(message.from_user.id, message.chat.id) as data:
+        data['sup_username'] = username
+    bot.send_message(message.chat.id, "Ushbu admin sahifasiga kirganda avtomatik yoziladigan xabarni kiriting (masalan: Assalomu aleykum, yordam kerak!):", reply_markup=get_cancel_keyboard())
+    bot.set_state(message.from_user.id, SupportState.text, message.chat.id)
+
+@bot.message_handler(state=SupportState.text)
+def get_support_text(message):
+    if message.text == "❌ Bekor qilish":
+        bot.send_message(message.chat.id, "Bekor qilindi.", reply_markup=get_admin_keyboard())
+        bot.delete_state(message.from_user.id, message.chat.id)
+        return
+    text = message.text
+    with bot.retrieve_data(message.from_user.id, message.chat.id) as data:
+        database.set_setting("support_username", data['sup_username'])
+        database.set_setting("support_text", text)
+    bot.send_message(message.chat.id, "✅ Yordam tugmasi ma'lumotlari muvaffaqiyatli saqlandi!", reply_markup=get_admin_keyboard())
     bot.delete_state(message.from_user.id, message.chat.id)
 
 # --- QOLGAN FUNKSIYALAR ---
@@ -408,13 +445,28 @@ def text_handler(message):
                 except:
                     bot.send_message(message.chat.id, caption, parse_mode="HTML", reply_markup=markup)
     elif text == "ℹ️ Yordam":
-        # "Assalomu Alekum❗" URL encoded
-        # ❗ = U+2757 = %E2%9D%97
-        url = "https://t.me/kinolas_admin?text=Assalom%20alekum❗"
-        markup = json.dumps({"inline_keyboard": [[{"text": "👨‍💻 Adminga yozish", "url": url, "style": "primary"}]]})
-        bot.send_message(message.chat.id, "Admin bilan bog'lanish uchun quyidagi tugmani bosing:", reply_markup=markup)
+        username = database.get_setting("support_username")
+        auto_text = database.get_setting("support_text", "")
+        if not username:
+            bot.send_message(message.chat.id, "Hozircha admin bilan bog'lanish o'chirilgan.")
+        else:
+            import urllib.parse
+            encoded_text = urllib.parse.quote(auto_text)
+            url = f"https://t.me/{username}?text={encoded_text}"
+            markup = json.dumps({"inline_keyboard": [[{"text": "👨‍💻 Adminga yozish", "url": url, "style": "primary"}]]})
+            bot.send_message(message.chat.id, "Admin bilan bog'lanish uchun quyidagi tugmani bosing:", reply_markup=markup)
     elif text == "🏠 Asosiy menyu":
         bot.send_message(message.chat.id, "Asosiy menyuga qaytdingiz.", reply_markup=get_main_menu())
+    elif text == "⚙️ Yordam tugmasi" and user_id in ADMIN_IDS:
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("✏️ Tahrirlash", callback_data="sup_edit"),
+            InlineKeyboardButton("🗑 Olib tashlash", callback_data="sup_del")
+        )
+        current_username = database.get_setting("support_username", "Kiritilmagan")
+        current_text = database.get_setting("support_text", "Kiritilmagan")
+        msg = f"ℹ️ <b>Yordam tugmasi sozlamalari:</b>\n\n👤 Username: {current_username}\n📝 Avto-matn: {current_text}"
+        bot.send_message(message.chat.id, msg, parse_mode="HTML", reply_markup=markup)
     elif text == "✉️ Rassilka" and user_id in ADMIN_IDS:
         bot.send_message(message.chat.id, "✉️ Xabarni kiriting (barcha foydalanuvchilarga yuboriladi):", reply_markup=get_cancel_keyboard())
         bot.set_state(message.from_user.id, BroadcastState.message, message.chat.id)
