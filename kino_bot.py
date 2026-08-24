@@ -410,15 +410,29 @@ def text_handler(message):
         bot.set_state(message.from_user.id, BroadcastState.message, message.chat.id)
     elif text == "📊 Statistika" and user_id in ADMIN_IDS:
         total_users = database.get_user_count()
-        new_users = database.get_new_user_count(7)
+        today_users = database.get_new_user_count(1)
+        week_users = database.get_new_user_count(7)
+        month_users = database.get_new_user_count(30)
         total_movies = database.get_movie_count()
+        total_saved = database.get_total_saved_movies_count()
         total_channels = len(database.get_channels())
+        
+        import datetime
+        now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
+
         stats_msg = (
-            f"<b>📊 Bot statistikasiga xush kelibsiz!</b>\n\n"
-            f"👥 Foydalanuvochilar: {total_users}\n"
-            f"🆕 Oxirgi 7 kunda ro‘yxatga olingan: {new_users}\n"
-            f"🎬 Kinolar: {total_movies}\n"
-            f"📢 Majburiy kanallar: {total_channels}"
+            f"📊 <b>Bot Statistikasi</b>\n"
+            f"📅 <i>Sana: {now}</i>\n\n"
+            f"👥 <b>Foydalanuvchilar:</b>\n"
+            f" ┣ Barcha: <b>{total_users}</b>\n"
+            f" ┣ Bugun: <b>+{today_users}</b>\n"
+            f" ┣ Shu hafta: <b>+{week_users}</b>\n"
+            f" ┗ Shu oy: <b>+{month_users}</b>\n\n"
+            f"🎬 <b>Kino bazasi:</b>\n"
+            f" ┣ Jami kinolar: <b>{total_movies}</b>\n"
+            f" ┗ Foydalanuvchilar saqlagan: <b>{total_saved}</b> marta\n\n"
+            f"📢 <b>Tizim:</b>\n"
+            f" ┗ Majburiy kanallar: <b>{total_channels}</b> ta"
         )
         bot.send_message(message.chat.id, stats_msg, parse_mode="HTML")
 
