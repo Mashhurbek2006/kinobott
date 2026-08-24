@@ -47,13 +47,16 @@ class SupportState(StatesGroup):
 def premium_emoji(emoji_id, fallback="👍"):
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
-def colorful_reply_button(text, style="default"):
-    return {"text": text, "style": style}
+def colorful_reply_button(text, style="default", emoji_id=None):
+    btn = {"text": text, "style": style}
+    if emoji_id:
+        btn["icon_custom_emoji_id"] = emoji_id
+    return btn
 
 def get_main_menu():
     keyboard = [
-        [colorful_reply_button("🔍 Kino Qidirish", "primary"), colorful_reply_button("💾 Saqlanganlar", "success")],
-        [colorful_reply_button("ℹ️ Yordam", "danger")]
+        [colorful_reply_button("Kino Qidirish", "primary", "5231012545799666522"), colorful_reply_button("Saqlanganlar", "success", "5253742260054409879")],
+        [colorful_reply_button("Yordam", "danger", "5334544901428229844")]
     ]
     return json.dumps({"keyboard": keyboard, "resize_keyboard": True})
 
@@ -383,7 +386,7 @@ def search_movie(message):
     code = message.text
 
     # Bekor qilish – birinchi tekshiriladi
-    if code == "❌ Bekor qilish":
+    if code in ["❌ Bekor qilish", "Bekor qilish"]:
         bot.delete_state(message.from_user.id, message.chat.id)
         bot.send_message(message.chat.id, "Kino qidirish bekor qilindi.", reply_markup=get_main_menu())
         return
@@ -422,16 +425,16 @@ def text_handler(message):
         return
 
     # Check sub before user actions
-    if text in ["🔍 Kino Qidirish", "💾 Saqlanganlar", "ℹ️ Yordam"] or not text.startswith('/'):
+    if text in ["🔍 Kino Qidirish", "💾 Saqlanganlar", "ℹ️ Yordam", "Kino Qidirish", "Saqlanganlar", "Yordam"] or not text.startswith('/'):
         not_subscribed = check_subscription(user_id)
         if not_subscribed:
             send_subscription_warning(message.chat.id, not_subscribed)
             return
             
-    if text == "🔍 Kino Qidirish":
+    if text in ["🔍 Kino Qidirish", "Kino Qidirish"]:
         bot.send_message(message.chat.id, "✍️ Iltimos, topmoqchi bo'lgan kino kodini yozing:", reply_markup=get_cancel_keyboard())
         bot.set_state(message.from_user.id, SearchState.code, message.chat.id)
-    elif text == "💾 Saqlanganlar":
+    elif text in ["💾 Saqlanganlar", "Saqlanganlar"]:
         saved = database.get_saved_movies(user_id)
         if not saved:
             bot.send_message(message.chat.id, "📭 Sizda hozircha saqlangan kinolar yo'q.\n\n💡 Kino topib, <b>💾 Saqlash</b> tugmasini bosing!", parse_mode="HTML")
@@ -444,7 +447,7 @@ def text_handler(message):
                     bot.send_video(message.chat.id, movie['file_id'], caption=caption, parse_mode="HTML", reply_markup=markup, protect_content=True)
                 except:
                     bot.send_message(message.chat.id, caption, parse_mode="HTML", reply_markup=markup)
-    elif text == "ℹ️ Yordam":
+    elif text in ["ℹ️ Yordam", "Yordam"]:
         username = database.get_setting("support_username")
         auto_text = database.get_setting("support_text", "")
         if not username:
