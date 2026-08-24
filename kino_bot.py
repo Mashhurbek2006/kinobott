@@ -12,11 +12,86 @@ database.init_db()
 TOKEN = os.environ.get("BOT_TOKEN", "8822651236:AAGMsIFclDnsf5V6CS5xZWWWD0OoDtUSozI")
 state_storage = StateMemoryStorage()
 bot = telebot.TeleBot(TOKEN, state_storage=state_storage)
+BOT_USERNAME = None
+
+ADMIN_IDS = list(map(int, os.environ.get("ADMIN_IDS", "5469081053").split(",")))
+
+# --- BACKUP KANAL TIZIMI ---
+BACKUP_CHANNEL_LINK = "https://t.me/+zHIC33VrEBY5YjRi"
+BACKUP_ID_FILE = "backup_channel_id.txt"
+
+def get_backup_channel_id():
+    """Backup kanal ID sini fayldan o'qish."""
+    try:
+        with open(BACKUP_ID_FILE, 'r') as f:
+            return int(f.read().strip())
+    except:
+        return None
+
+def save_backup_channel_id(chat_id):
+    """Backup kanal ID sini faylga saqlash."""
+    with open(BACKUP_ID_FILE, 'w') as f:
+        f.write(str(chat_id))
+
+def backup_to_channel():
+    """Barcha ma'lumotlarni JSON fayl sifatida backup kanalga yuborish va pin qilish."""
+    channel_id = get_backup_channel_id()
+    if not channel_id:
+        return
+    try:
+        data = database.export_all_data()
+        backup_content = json.dumps(data, ensure_ascii=False, indent=2)
+        with open("backup.json", 'w', encoding='utf-8') as f:
+            f.write(backup_content)
+        with open("backup.json", 'rb') as f:
+            import datetime
+            now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
+            msg = bot.send_document(channel_id, f, caption=f"\U0001f4e6 Bot zaxira nusxasi\n\U0001f4c5 {now}")
+        try:
+            bot.pin_chat_message(channel_id, msg.message_id, disable_notification=True)
+        except:
+            pass
+    except Exception as e:
+        print(f"Backup xatolik: {e}")
+
+def restore_from_channel():
+    """Backup kanalning pin qilingan xabaridagi JSON fayldan bazani tiklash."""
+    channel_id = get_backup_channel_id()
+    if not channel_id:
+        return False
+    try:
+        chat = bot.get_chat(channel_id)
+        if not chat.pinned_message or not chat.pinned_message.document:
+            return False
+        file_info = bot.get_file(chat.pinned_message.document.file_id)
+        downloaded = bot.download_file(file_info.file_path)
+        data = json.loads(downloaded.decode('utf-8'))
+        database.import_all_data(data)
+        print(f"\u2705 Backup kanaldan tiklandi: {len(data.get('movies', []))} kino, {len(data.get('channels', []))} kanal, {len(data.get('users', []))} foydalanuvchi")
+        return True
+    except Exception as e:
+        print(f"Restore xatolik: {e}")
+        return False
+
+# Startup: agar baza bo'sh bo'lsa, backup kanaldan tiklash
+if database.get_movie_count() == 0 and database.get_user_count() == 0:
+    print("Baza bo'sh, backup kanaldan tiklash urinilmoqda...")
+    if restore_from_channel():
+        print("Ma'lumotlar muvaffaqiyatli tiklandi!")
+    else:
+        print("Backup topilmadi yoki backup kanal sozlanmagan.")
+
+TOKEN = os.environ.get("BOT_TOKEN", "8822651236:AAGMsIFclDnsf5V6CS5xZWWWD0OoDtUSozI")
+state_storage = StateMemoryStorage()
+bot = telebot.TeleBot(TOKEN, state_storage=state_storage)
 # Retrieve bot username once for link generation (will be set lazily)
 BOT_USERNAME = None
 
 
 ADMIN_IDS = list(map(int, os.environ.get("ADMIN_IDS", "5469081053").split(",")))
+
+class BackupChannelState(StatesGroup):
+    forward = State()
 
 class MovieState(StatesGroup):
     code = State()
@@ -66,10 +141,10 @@ def get_cancel_keyboard():
 
 def get_admin_keyboard():
     keyboard = [
-        [colorful_reply_button("📢 Majburiy obuna", "danger"), colorful_reply_button("⚙️ Yordam tugmasi", "primary")],
-        [colorful_reply_button("📊 Statistika", "primary"), colorful_reply_button("✉️ Rassilka", "success")],
-        [colorful_reply_button("🎬 Yangi kino", "danger"), colorful_reply_button("🎬 Kinolar ro'yxati", "primary")],
-        [colorful_reply_button("🏠 Asosiy menyu", "default")]
+        [colorful_reply_button("\U0001f4e2 Majburiy obuna", "danger"), colorful_reply_button("\u2699\ufe0f Yordam tugmasi", "primary")],
+        [colorful_reply_button("\U0001f4ca Statistika", "primary"), colorful_reply_button("\u2709\ufe0f Rassilka", "success")],
+        [colorful_reply_button("\U0001f3ac Yangi kino", "danger"), colorful_reply_button("\U0001f3ac Kinolar ro'yxati", "primary")],
+        [colorful_reply_button("\U0001f4e6 Backup kanal", "success"), colorful_reply_button("\U0001f3e0 Asosiy menyu", "default")]
     ]
     return json.dumps({"keyboard": keyboard, "resize_keyboard": True})
 
@@ -83,9 +158,6 @@ def get_admin_channels_menu():
     return markup
 
 def get_movie_keyboard(code, user_id=None):
-    """Return inline keyboard with only the **Saqlash** button.
-    The share functionality has been removed per user request.
-    """
     markup = {
         "inline_keyboard": [
             [
@@ -128,24 +200,17 @@ def send_subscription_warning(chat_id, not_subscribed):
     text = f"{premium_emoji('6296341890371422476', '❗️')} Kechirasiz, botimizdan to‘liq foydalanish uchun quyidagi kanallarga a‘zo bo‘ling {premium_emoji('6296303781126604562', '👇')}"
     bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
-# Zayavkalarni ushlab qolish (qabul qilmaydi, shunchaki ro'yxatga oladi)
 @bot.chat_join_request_handler(func=lambda request: True)
 def handle_join_request(request):
     print(f"Zayavka tushdi: User {request.from_user.id} -> Chat {request.chat.id}")
     database.add_join_request(request.from_user.id, request.chat.id)
 
 def handle_start_deep_link(message):
-    """Process /start commands that contain a deep‑link token.
-    Supported tokens:
-    - ``movie_<code>``: direct movie code link.
-    If the user is subscribed to mandatory channels, the bot will send the movie.
-    """
     text = message.text or ""
     parts = text.split()
     if len(parts) < 2:
-        return False  # not a deep link
+        return False
     token = parts[1]
-    # Direct code link
     if token.startswith('movie_'):
         code = token.split('_', 1)[1]
         user_id = message.from_user.id
@@ -172,7 +237,6 @@ def admin_command(message):
 
 @bot.message_handler(commands=['start'])
 def start_handler(message):
-    # Attempt deep link handling; if not a deep link, send welcome message
     if not handle_start_deep_link(message):
         user_first = message.from_user.first_name
         bot.send_message(message.chat.id,
@@ -204,7 +268,6 @@ def send_broadcast(message):
         bot.send_message(message.chat.id, "Xabar yuborish bekor qilindi.", reply_markup=get_admin_keyboard())
         return
 
-    # fetch all user IDs from DB
     user_ids = database.get_all_user_ids()
     sent = 0
     for uid in user_ids:
@@ -216,11 +279,32 @@ def send_broadcast(message):
     bot.send_message(message.chat.id, f"✅ Xabar {sent} foydalanuvchiga yuborildi.", reply_markup=get_admin_keyboard())
     bot.delete_state(message.from_user.id, message.chat.id)
 
-# --- MAJBURIY OBUNA ADMIN FSM ---
-@bot.callback_query_handler(func=lambda call: call.data.startswith('admin_') or call.data.startswith('sup_'))
+# --- ADMIN CALLBACK HANDLERS ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith('admin_') or call.data.startswith('sup_') or call.data.startswith('bkp_'))
 def admin_channels_callback(call):
     if call.from_user.id not in ADMIN_IDS: return
-    if call.data == "sup_del":
+    # --- BACKUP KANAL ---
+    if call.data == "bkp_set":
+        bot.send_message(call.message.chat.id, "\U0001f4e4 Backup kanaldan istalgan xabarni menga FORWARD (uzatib) yuboring:", reply_markup=get_cancel_keyboard())
+        bot.set_state(call.from_user.id, BackupChannelState.forward, call.message.chat.id)
+    elif call.data == "bkp_now":
+        backup_id = get_backup_channel_id()
+        if not backup_id:
+            bot.answer_callback_query(call.id, "\u274c Avval backup kanalni sozlang!", show_alert=True)
+            return
+        backup_to_channel()
+        bot.answer_callback_query(call.id, "\u2705 Backup muvaffaqiyatli yuborildi!", show_alert=True)
+    elif call.data == "bkp_restore":
+        backup_id = get_backup_channel_id()
+        if not backup_id:
+            bot.answer_callback_query(call.id, "\u274c Avval backup kanalni sozlang!", show_alert=True)
+            return
+        if restore_from_channel():
+            bot.answer_callback_query(call.id, "\u2705 Ma'lumotlar backupdan tiklandi!", show_alert=True)
+        else:
+            bot.answer_callback_query(call.id, "\u274c Backupda ma'lumot topilmadi!", show_alert=True)
+    # --- YORDAM ---
+    elif call.data == "sup_del":
         database.delete_setting("support_username")
         database.delete_setting("support_text")
         bot.answer_callback_query(call.id, "🗑 Yordam ma'lumotlari o'chirildi!", show_alert=True)
@@ -294,12 +378,28 @@ def add_ch_emoji_id(message):
         bot.send_message(message.chat.id, "✅ Kanal bazaga rang bilan muvaffaqiyatli qo'shildi!")
         
     bot.delete_state(message.from_user.id, message.chat.id)
+    backup_to_channel()
 
 @bot.message_handler(state=RemoveChannelState.chat_id)
 def remove_ch_id(message):
     database.remove_channel(message.text)
-    bot.send_message(message.chat.id, "✅ Kanal o'chirildi (agar mavjud bo'lsa).")
+    bot.send_message(message.chat.id, "\u2705 Kanal o'chirildi (agar mavjud bo'lsa).")
     bot.delete_state(message.from_user.id, message.chat.id)
+    backup_to_channel()
+
+@bot.message_handler(state=BackupChannelState.forward, content_types=['text', 'photo', 'video', 'document', 'audio', 'voice'])
+def set_backup_channel(message):
+    if message.text == "\u274c Bekor qilish":
+        bot.send_message(message.chat.id, "Bekor qilindi.", reply_markup=get_admin_keyboard())
+        bot.delete_state(message.from_user.id, message.chat.id)
+        return
+    if message.forward_from_chat:
+        chat_id = message.forward_from_chat.id
+        save_backup_channel_id(chat_id)
+        bot.send_message(message.chat.id, f"\u2705 Backup kanal muvaffaqiyatli sozlandi!\n\nKanal ID: <code>{chat_id}</code>", parse_mode="HTML", reply_markup=get_admin_keyboard())
+        bot.delete_state(message.from_user.id, message.chat.id)
+    else:
+        bot.send_message(message.chat.id, "\u274c Iltimos, backup kanaldan xabarni FORWARD (uzatib) yuboring!")
 
 @bot.message_handler(state=SupportState.username)
 def get_support_username(message):
@@ -323,8 +423,9 @@ def get_support_text(message):
     with bot.retrieve_data(message.from_user.id, message.chat.id) as data:
         database.set_setting("support_username", data['sup_username'])
         database.set_setting("support_text", text)
-    bot.send_message(message.chat.id, "✅ Yordam tugmasi ma'lumotlari muvaffaqiyatli saqlandi!", reply_markup=get_admin_keyboard())
+    bot.send_message(message.chat.id, "\u2705 Yordam tugmasi ma'lumotlari muvaffaqiyatli saqlandi!", reply_markup=get_admin_keyboard())
     bot.delete_state(message.from_user.id, message.chat.id)
+    backup_to_channel()
 
 # --- QOLGAN FUNKSIYALAR ---
 @bot.channel_post_handler(content_types=['video', 'document'])
@@ -375,8 +476,18 @@ def get_quality(message):
         with bot.retrieve_data(message.from_user.id, message.chat.id) as data:
             code, file_id, name, lang, quality = data['code'], data['file_id'], data['name'], data['lang'], message.text
             database.add_movie(code, file_id, name, lang, quality, data.get('message_id'), data.get('channel_id'))
-        bot.send_message(message.chat.id, f"✅ <b>Kino bazaga saqlandi!</b>\n\n📌 <b>Kod:</b> {code}\n🎬 <b>Nom:</b> {name}\n🇺🇿 <b>Til:</b> {lang}\n🎞 <b>Sifat:</b> {quality}", parse_mode="HTML")
+        bot.send_message(message.chat.id, f"\u2705 <b>Kino bazaga saqlandi!</b>\n\n\U0001f4cc <b>Kod:</b> {code}\n\U0001f3ac <b>Nom:</b> {name}\n\U0001f1fa\U0001f1ff <b>Til:</b> {lang}\n\U0001f39e <b>Sifat:</b> {quality}", parse_mode="HTML")
         bot.delete_state(message.from_user.id, message.chat.id)
+        # Backup kanalga videoni yuborish
+        backup_id = get_backup_channel_id()
+        if backup_id:
+            try:
+                caption = f"\U0001f4cc Kod: {code}\n\U0001f3ac Nom: {name}\n\U0001f1fa\U0001f1ff Til: {lang}\n\U0001f39e Sifat: {quality}"
+                bot.send_video(backup_id, file_id, caption=caption)
+            except Exception as e:
+                print(f"Backup kanalga video yuborishda xatolik: {e}")
+        # JSON backup yangilash
+        backup_to_channel()
     except Exception as e:
         bot.send_message(message.chat.id, f"Xatolik: {e}")
 
@@ -385,7 +496,6 @@ def search_movie(message):
     user_id = message.from_user.id
     code = message.text
 
-    # Bekor qilish – birinchi tekshiriladi
     if code in ["❌ Bekor qilish", "Bekor qilish"]:
         bot.delete_state(message.from_user.id, message.chat.id)
         bot.send_message(message.chat.id, "Kino qidirish bekor qilindi.", reply_markup=get_main_menu())
@@ -414,7 +524,6 @@ def text_handler(message):
     user_id = message.from_user.id
     database.add_user(user_id)
 
-    # Bekor qilish – har qanday holatda ham ishlaydi
     if text == "❌ Bekor qilish":
         bot.send_message(message.chat.id, "Bekor qilindi.", reply_markup=get_main_menu())
         bot.delete_state(user_id, message.chat.id)
@@ -424,7 +533,6 @@ def text_handler(message):
         bot.send_message(message.chat.id, "Majburiy obuna sozlamalari:", reply_markup=get_admin_channels_menu())
         return
 
-    # Check sub before user actions
     if text in ["🔍 Kino Qidirish", "💾 Saqlanganlar", "ℹ️ Yordam", "Kino Qidirish", "Saqlanganlar", "Yordam"] or not text.startswith('/'):
         not_subscribed = check_subscription(user_id)
         if not_subscribed:
@@ -458,8 +566,22 @@ def text_handler(message):
             url = f"https://t.me/{username}?text={encoded_text}"
             markup = json.dumps({"inline_keyboard": [[{"text": "👨‍💻 Adminga yozish", "url": url, "style": "primary"}]]})
             bot.send_message(message.chat.id, "Admin bilan bog'lanish uchun quyidagi tugmani bosing:", reply_markup=markup)
-    elif text == "🏠 Asosiy menyu":
+    elif text == "\U0001f3e0 Asosiy menyu":
         bot.send_message(message.chat.id, "Asosiy menyuga qaytdingiz.", reply_markup=get_main_menu())
+    elif text == "\U0001f4e6 Backup kanal" and user_id in ADMIN_IDS:
+        current_id = get_backup_channel_id()
+        if current_id:
+            status_text = f"\u2705 Backup kanal sozlangan: <code>{current_id}</code>"
+        else:
+            status_text = "\u274c Backup kanal hali sozlanmagan"
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("\U0001f4e4 Backup kanaldan xabar forward qiling", callback_data="bkp_set"),
+            InlineKeyboardButton("\U0001f504 Hozir backup qilish", callback_data="bkp_now"),
+            InlineKeyboardButton("\U0001f4e5 Backupdan tiklash", callback_data="bkp_restore")
+        )
+        msg = f"\U0001f4e6 <b>Backup kanal sozlamalari:</b>\n\n{status_text}\n\U0001f517 Link: {BACKUP_CHANNEL_LINK}\n\n\U0001f4a1 <i>Botni backup kanalga admin qilib qo'shing va quyidagi tugmalardan foydalaning.</i>"
+        bot.send_message(message.chat.id, msg, parse_mode="HTML", reply_markup=markup)
     elif text == "⚙️ Yordam tugmasi" and user_id in ADMIN_IDS:
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -545,11 +667,13 @@ def delete_movie_callback(call):
         return
     code = call.data.split('_', 1)[1]
     database.delete_movie(code)
-    bot.answer_callback_query(call.id, f"✅ '{code}' kodi bilan kino o'chirildi!", show_alert=True)
+    bot.answer_callback_query(call.id, f"\u2705 '{code}' kodi bilan kino o'chirildi!", show_alert=True)
     try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except:
         pass
+    # Backup yangilash
+    backup_to_channel()
 
 bot.add_custom_filter(custom_filters.StateFilter(bot))
 
