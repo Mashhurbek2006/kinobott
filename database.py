@@ -48,25 +48,7 @@ def init_db():
             PRIMARY KEY (user_id, chat_id)
         )
     ''')
-    # Table for share links (multiple links per movie allowed)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS share_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT NOT NULL,
-            secret TEXT UNIQUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    # Table for referral tracking
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS referrals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            referrer_id INTEGER NOT NULL,
-            referred_user_id INTEGER NOT NULL,
-            secret TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+
     conn.close()
 
 def add_channel(chat_id, name, url, style, emoji_id):
@@ -197,58 +179,13 @@ def get_movie(code):
         }
     return None
 
-def get_movie_by_secret(secret):
+def get_total_saved_movies_count():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT m.file_id, m.name, m.lang, m.quality, m.code
-        FROM movies m
-        JOIN share_links s ON m.code = s.code
-        WHERE s.secret = ?
-    ''', (secret,))
-    result = cursor.fetchone()
-    # Consume the secret (one‑time use)
-    cursor.execute('DELETE FROM share_links WHERE secret = ?', (secret,))
-    conn.commit()
+    cursor.execute('SELECT COUNT(*) FROM saved_movies')
+    count = cursor.fetchone()[0]
     conn.close()
-    if result:
-        return {"file_id": result[0], "name": result[1], "lang": result[2], "quality": result[3], "code": result[4]}
-    return None
-
-def create_share_secret(code, referrer_id=None):
-    """Create a new unique secret for a given movie code and store it.
-    Optionally record the referrer (user who generated the share link).
-    Returns the generated secret string.
-    """
-    import uuid, sqlite3
-    secret = uuid.uuid4().hex
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    # Store in share_links for one‑time use
-    cursor.execute('INSERT INTO share_links (code, secret) VALUES (?, ?)', (code, secret))
-    # Record referrer if provided
-    if referrer_id is not None:
-        cursor.execute('INSERT INTO referrals (referrer_id, referred_user_id, secret) VALUES (?, NULL, ?)', (referrer_id, secret))
-    conn.commit()
-    conn.close()
-    return secret
-
-def get_referrer_by_secret(secret):
-    """Return the referrer_id associated with a share secret, or None if not found."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('SELECT referrer_id FROM referrals WHERE secret = ?', (secret,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
-
-def record_referral(secret, referred_user_id):
-    """Update the referral row with the ID of the user who used the link."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('UPDATE referrals SET referred_user_id = ? WHERE secret = ?', (referred_user_id, secret))
-    conn.commit()
-    conn.close()
+    return count
 
 def save_movie(user_id, code):
     conn = sqlite3.connect(DB_NAME)
