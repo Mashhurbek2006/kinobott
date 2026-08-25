@@ -9,7 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 database.init_db()
 
-TOKEN = os.environ.get("BOT_TOKEN", "8822651236:AAGMsIFclDnsf5V6CS5xZWWWD0OoDtUSozI")
+TOKEN = os.environ.get("BOT_TOKEN", "8822651236:AAG8hnN1ZOb6e8dnqW5fPhsik-3BFpq5_GY")
 state_storage = StateMemoryStorage()
 bot = telebot.TeleBot(TOKEN, state_storage=state_storage)
 BOT_USERNAME = None
